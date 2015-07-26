@@ -1,0 +1,121 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "dwake95"
+---
+```{r, Download Data and Environment Set Up, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE} 
+# Code to access the data 
+# Download the file to a Temporary folder 
+if (!file.exists("data")) {
+        dir.create("data")
+}
+if (!file.exists("data/train.csv")) {
+        trainDataURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainDataURL, "./data/train.csv", mode="wb")
+}
+if (!file.exists("data/test.csv")) {
+        testDataURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testDataURL, "./data/test.csv", mode="wb")
+}
+
+library("doParallel", lib.loc="~/R/win-library/3.2")
+library("caret", lib.loc="~/R/win-library/3.2")
+library("dplyr", lib.loc="~/R/win-library/3.2")
+library("data.table")
+
+registerDoParallel(cores=2)
+
+test = read.csv("./data/test.csv")
+train = read.csv("./data/train.csv")
+```
+## Executive Summary
+This project was to create a machine learning model and evaluate the model against 10 test cases. This exercise is based on the Weight Lifting Exercise Dataset.^1^ To develop the model, training data is utilized which shows data from 4 inertial measurement unit (IMU) sensors placed on the belt, glove, arm, and dumbbell of a number of test participants, as they performed Unilateral Dumbbell Biceps Curl in five different fashions:       
+        - exactly according to the specification (Class A)
+        - throwing the elbows to the front (Class B)
+        - lifting the dumbbell only halfway (Class C)
+        - lowering the dumbbell only halfway (Class D) 
+        - throwing the hips to the front (Class E).
+        
+The classes are indicated within the training data as the "classe" variable. 
+No classe data is provided within the test data set and that is what will be predicted by the model.  
+
+## The Data
+In reviewing the data provided, the first conditioning required is to set the "classe"" variable to a factor variable.  
+
+```{r, classe to factor, echo=FALSE}
+train$classe = as.factor(train$classe)
+```
+
+Also, there is summary data of time windows documented within the training data set.  These are shown where the new_window variable is set to yes.  However, as the test data are all random points in time, most of this data will not be useful to predict.  Therefore, these are removed from the training dataset, and the columns which are all NA now are removed.  Finally, the train data frame is further selecting only the pitch, roll, yaw, and total accelleration of the sensors in the arm, dumbell, belt, and glove.  This is done based on the understanding that these are the key components from the IMU sensors, and are calculated from the gyro, magnetometer, and accelerometer measurements.
+
+```{r, Ditch New Window Data, echo=FALSE, cache=TRUE}
+train = filter(train, new_window != "yes")
+train = select(train, classe, user_name, starts_with("pitch"), starts_with("yaw"), starts_with("roll"), starts_with("total"))
+```
+
+This leaves train to be summarized as:
+
+```{r, train Summary, echo=FALSE}
+str(train)
+```
+## How the Model was Built
+Finally, the train data is subsetted into training and testing data in order to support cross validation of the model to be built.  60% of the data is used to for the training data set, and 40% is set aside for the testing data set.  
+
+```{r, Subsetting train, echo=FALSE, cache=TRUE}
+set.seed(95)
+inTrain = createDataPartition(y=train$classe, p=0.6, list = FALSE)
+training = train[inTrain,]
+testing = train[-inTrain,]
+```
+
+Next the model is built using a Random Forest method, from the training data.  Random Forest was selected to be use because model we are trying to develop is to predict a class based on a number of predictor variables.  Therefore, the random forest will be useful in classifying the data.  
+
+```{r, Model Fitting, echo=FALSE, cache = TRUE}
+modFit <- train(classe ~ ., method = "rf", data = training)
+modFit
+```
+
+## Cross Validation
+
+Choosing the 60/40 split in the data was based on the guidance provided in the class, although many of the examples used 70/30.  Using 60/40 also consumes less resources in the building of the model.  
+
+Now a table is provided to show In Sample Error based on the classification of the training data set witht he training data model.
+
+```{r, In Sample Error, echo=FALSE, cache = TRUE}
+pred_train = predict(modFit, newdata = training)
+training$predRight <- pred_train==training$classe
+table(pred_train, training$classe)
+```
+
+### Expected Out of Sample Error 
+
+Similarly, Out of Sample Error is depicted in the following table. 
+
+```{r, Out of Sample Error, echo=FALSE, cache=TRUE}
+pred_test = predict(modFit, newdata = testing)
+testing$predRight <- pred_test==testing$classe
+table(pred_test, testing$classe)
+```
+
+Based on the estimated 98% accuracy of the model, there is expected to be a few incorrect classifications, and the above table shows only 66 out of 7684 or 0.86% Out of Sample error in the classification prediction.
+
+## Prediction
+Embedded in this part of the report is the code for the predictions against the test case data set, and the a mechanism to separate the answers in specific files for the submission.  Files have been submitted and all submissions were evaluated as correct. 
+
+```{r, Prediction, echo=FALSE, cache=TRUE}
+Final_Test = predict(modFit, newdata = test)
+Final_Test = as.character(Final_Test)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(Final_Test)
+```
+
+## References:
+
+^1^Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
